@@ -9,28 +9,47 @@ from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import RandomForestRegressor
 
 
-def _merge_external_data(X):
-    filepath = os.path.join(
-        os.path.dirname(__file__), 'external_data.csv'
-    )
+def _merge_airport_data(X):
+    filepath = os.path.join(os.path.dirname(__file__), "external_data.csv")
+
+    X = X.copy()  # to avoid raising SettingOnCopyWarning
     # Make sure that DateOfDeparture is of dtype datetime
-    X = X.copy()  # modify a copy of X
-    X.loc[:, "DateOfDeparture"] = pd.to_datetime(X['DateOfDeparture'])
-    # Parse date to also be of dtype datetime
-    data_weather = pd.read_csv(filepath, parse_dates=["Date"])
+    data_airport = pd.read_csv(filepath, sep=";")
 
-    X_weather = data_weather[['Date', 'AirPort', 'Max TemperatureC']]
-    X_weather = X_weather.rename(
-        columns={'Date': 'DateOfDeparture', 'AirPort': 'Arrival'}
+    X_airport = data_airport[
+        [
+            "AirportCode",
+            "CityPopulation2012",
+            "DomesticEnplanedPassengers2012(millions)",
+            "AverageDomesticFlightFare2012($)",
+        ]
+    ]
+    X_airport = X_airport.rename(
+        columns={
+            "AirportCode": "Departure",
+            "CityPopulation2012": "PopulationDeparture",
+            "DomesticEnplanedPassengers2012(millions)": "NbPassengersDeparture",
+            "AverageDomesticFlightFare2012($)": "AverageFlightFareDeparture",
+        }
     )
+    X_merged = pd.merge(X, X_airport, how="left", on=["Departure"], sort=False)
+    X_airport = X_airport.rename(
+        columns={
+            "Departure": "Arrival",
+            "PopulationDeparture": "PopulationArrival",
+            "NbPassengersDeparture": "NbPassengersArrival",
+            "AverageFlightFareDeparture": "AverageFlightFareArrival",
+        }
+    )
+    X_merged = pd.merge(X_merged, X_airport, how="left", on=["Arrival"], sort=False)
 
-    X_merged = pd.merge(
-        X, X_weather, how='left', on=['DateOfDeparture', 'Arrival'], sort=False
-    )
     return X_merged
 
 
+data_merger = FunctionTransformer(_merge_airport_data)
 def _encode_dates(X):
+    
+    X.loc[:, 'DateOfDeparture'] = pd.to_datetime(X['DateOfDeparture'])
     # Encode the date information from the DateOfDeparture columns
     X.loc[:, 'year'] = X['DateOfDeparture'].dt.year
     X.loc[:, 'month'] = X['DateOfDeparture'].dt.month
@@ -45,7 +64,7 @@ def _encode_dates(X):
 
 
 def get_estimator():
-    data_merger = FunctionTransformer(_merge_external_data)
+    data_merger = FunctionTransformer(_merge_airport_data)
 
     date_encoder = FunctionTransformer(_encode_dates)
     date_cols = ["DateOfDeparture"]
@@ -63,7 +82,7 @@ def get_estimator():
     )
 
     regressor = RandomForestRegressor(
-        n_estimators=10, max_depth=10, max_features=10, n_jobs=4
+        n_estimators=10, max_depth=4, max_features=10, n_jobs=4
     )
 
     return make_pipeline(data_merger, preprocessor, regressor)
